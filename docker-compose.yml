@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  tg-bot:
+    build: .
+    container_name: tg-contact-bot
+    restart: always
+    # 环境变量配置
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
