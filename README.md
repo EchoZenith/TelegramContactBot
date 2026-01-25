@@ -25,7 +25,7 @@
 #### 2. 下载与配置
 克隆本仓库到你的服务器：
 ```bash
-git clone [https://github.com/EchoZenith/TelegramContactBot.git](https://github.com/你的用户名/TelegramContactBot.git)
+git clone https://github.com/EchoZenith/TelegramContactBot.git
 cd TelegramContactBot/
 ```
 复制示例配置文件并填入你的信息：
