@@ -1,13 +1,14 @@
 import os
 import logging
 import aiosqlite
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, MessageHandler, CommandHandler, filters, ContextTypes
 
 # --- 从环境变量读取配置 ---
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 ADMIN_ID = int(os.getenv('ADMIN_ID', '0'))
 DB_FILE = os.getenv('DB_PATH', '/app/data/messages.db')
+GITHUB_URL = os.getenv('GITHUB_URL', 'https://github.com/EchoZenith/TelegramContactBot')
 
 # 启用日志
 logging.basicConfig(
@@ -27,7 +28,18 @@ async def init_db():
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_chat.id
     if user_id != ADMIN_ID:
-        await update.message.reply_text("Hello!\n\nYou can contact us using this bot.")
+        # 创建一个带有 URL 的按钮
+        keyboard = [
+            [
+                InlineKeyboardButton("🌟 查看项目源码", url=GITHUB_URL)
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await update.message.reply_text(
+            "Hello!\n\nYou can contact us using this bot.",
+            reply_markup=reply_markup
+        )
     else:
         await update.message.reply_text("你好，管理员！有人给机器人发消息时，我会转发给你。你直接【回复】该消息即可回信。")
 
