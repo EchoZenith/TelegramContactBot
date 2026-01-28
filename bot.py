@@ -30,7 +30,7 @@ async def init_db():
 
 
 # 处理 /start 命令
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_chat.id
     keyboard = [[InlineKeyboardButton("🌟 查看项目源码", url=GITHUB_URL)]]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -39,6 +39,49 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Hello!\n\nYou can contact us using this bot.", reply_markup=reply_markup)
     else:
         await update.message.reply_text("你好，管理员！有人给机器人发消息时，我会转发给你。你直接【回复】该消息即可回信。")
+
+
+async def handle_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # 权限检查：仅限管理员
+    if update.effective_chat.id != ADMIN_ID:
+        return
+
+    message = update.message
+    # 必须是回复某条消息才能执行删除
+    if not message.reply_to_message:
+        await message.reply_text("请回复一条你想删除的消息并输入 /del")
+        return
+
+    target_id = message.reply_to_message.message_id
+
+    async with aiosqlite.connect(DB_FILE) as db:
+        # 查找这条消息对应的用户ID和用户端消息ID
+        async with db.execute(
+            "SELECT user_id, user_msg_id FROM msg_pairs WHERE admin_msg_id = ?", 
+            (target_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+            
+            if row:
+                user_id, user_msg_id = row
+                try:
+                    # 1. 删除用户端的消息
+                    await context.bot.delete_message(chat_id=user_id, message_id=user_msg_id)
+                    # 2. 删除管理员端的消息
+                    await context.bot.delete_message(chat_id=ADMIN_ID, message_id=target_id)
+                    # 3. 删除管理员刚才发的 "/del" 命令消息，保持界面整洁
+                    await message.delete()
+                    
+                    # 4. 从数据库中移除这条记录
+                    await db.execute("DELETE FROM msg_pairs WHERE admin_msg_id = ?", (target_id,))
+                    await db.commit()
+                    
+                except Exception as e:
+                    logger.error(f"同步删除失败: {e}")
+                    await message.reply_text(f"删除失败，可能消息已超过48小时或机器人无权限：{e}")
+            else:
+                await message.reply_text("未找到该消息的转发记录，无法同步删除。")
+
 
 # 处理同步修改逻辑
 async def handle_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -146,7 +189,9 @@ if __name__ == '__main__':
     application = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
     
     # 处理器注册
-    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("start", handle_start))
+    # 监听管理员删除消息
+    application.add_handler(CommandHandler("del", handle_delete))
     # 监听修改消息的更新
     application.add_handler(MessageHandler(filters.UpdateType.EDITED_MESSAGE & filters.TEXT, handle_edit))
     # 监听普通消息
