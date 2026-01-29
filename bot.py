@@ -71,6 +71,36 @@ async def handle_ban(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await msg.reply_text("⚠️ 找不到该消息的用户记录，无法执行封禁。")
 
 
+# 处理 /unban 命令
+async def handle_unban(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_chat.id != ADMIN_ID:
+        return
+        
+    msg = update.message
+    if not msg.reply_to_message:
+        await msg.reply_text("❌ 请回复一条要解封的用户消息并输入 /unban")
+        return
+        
+    target_id = msg.reply_to_message.message_id
+    
+    async with aiosqlite.connect(DB_FILE) as db:
+        # 同样先通过消息 ID 找到对应的用户 ID
+        async with db.execute("SELECT user_id FROM msg_pairs WHERE admin_msg_id = ?", (target_id,)) as cursor:
+            row = await cursor.fetchone()
+            
+            if row:
+                user_id = row[0]
+                try:
+                    # 从黑名单表中移除
+                    await db.execute("DELETE FROM blacklist WHERE user_id = ?", (user_id,))
+                    await db.commit()
+                    await msg.reply_text(f"✅ 用户 `{user_id}` 已解封，现在可以正常接收其消息。", parse_mode='Markdown')
+                except Exception as e:
+                    logger.error(f"Unban failed: {e}")
+            else:
+                await msg.reply_text("⚠️ 找不到该消息的用户记录，无法执行解封。")
+
+
 # 处理 /del 命令
 async def handle_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # 权限检查：仅限管理员
@@ -229,6 +259,8 @@ if __name__ == '__main__':
     application.add_handler(CommandHandler("start", handle_start))
     # 监听封禁
     application.add_handler(CommandHandler("ban", handle_ban))
+    # 监听解禁
+    application.add_handler(CommandHandler("unban", handle_unban))
     # 监听管理员删除消息
     application.add_handler(CommandHandler("del", handle_delete))
     # 监听修改消息的更新
@@ -238,4 +270,3 @@ if __name__ == '__main__':
     
     print(f"机器人已启动... 管理员ID: {ADMIN_ID}")
     application.run_polling()
-
