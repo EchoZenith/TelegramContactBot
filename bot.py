@@ -26,6 +26,8 @@ async def init_db():
         # 记录：管理员端消息ID <-> 用户端消息ID <-> 用户ID
         await db.execute('''CREATE TABLE IF NOT EXISTS msg_pairs 
                           (admin_msg_id INTEGER PRIMARY KEY, user_msg_id INTEGER, user_id INTEGER)''')
+        
+        await db.execute('''CREATE TABLE IF NOT EXISTS blacklist (user_id INTEGER PRIMARY KEY)''')
         await db.commit()
 
 
@@ -40,7 +42,36 @@ async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("你好，管理员！有人给机器人发消息时，我会转发给你。你直接【回复】该消息即可回信。")
 
+# 处理 /ban 命令
+async def handle_ban(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_chat.id != ADMIN_ID:
+        return
+        
+    msg = update.message
+    if not msg.reply_to_message:
+        await msg.reply_text("❌ 请回复一条要封禁的用户消息并输入 /ban")
+        return
+        
+    target_id = msg.reply_to_message.message_id
+    
+    async with aiosqlite.connect(DB_FILE) as db:
+        # 通过消息 ID 找到对应的用户 ID
+        async with db.execute("SELECT user_id FROM msg_pairs WHERE admin_msg_id = ?", (target_id,)) as cursor:
+            row = await cursor.fetchone()
+            
+            if row:
+                user_id = row[0]
+                try:
+                    await db.execute("INSERT OR IGNORE INTO blacklist VALUES (?)", (user_id,))
+                    await db.commit()
+                    await msg.reply_text(f"🚫 用户 `{user_id}` 已被加入黑名单，后续消息将不再转发。", parse_mode='Markdown')
+                except Exception as e:
+                    logger.error(f"Ban failed: {e}")
+            else:
+                await msg.reply_text("⚠️ 找不到该消息的用户记录，无法执行封禁。")
 
+
+# 处理 /del 命令
 async def handle_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # 权限检查：仅限管理员
     if update.effective_chat.id != ADMIN_ID:
@@ -150,6 +181,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # 1. 用户 -> 管理员
     if user_id != ADMIN_ID:
+        # 检查黑名单
+        async with aiosqlite.connect(DB_FILE) as db:
+            async with db.execute("SELECT 1 FROM blacklist WHERE user_id = ?", (user_id,)) as cursor:
+                if await cursor.fetchone():
+                    return # 如果在黑名单里，直接无视，不执行后续转发
+                    
         try:
             forwarded_msg = await context.bot.forward_message(chat_id=ADMIN_ID, from_chat_id=user_id, message_id=message.message_id)
             async with aiosqlite.connect(DB_FILE) as db:
@@ -190,6 +227,8 @@ if __name__ == '__main__':
     
     # 处理器注册
     application.add_handler(CommandHandler("start", handle_start))
+    # 监听封禁
+    application.add_handler(CommandHandler("ban", handle_ban))
     # 监听管理员删除消息
     application.add_handler(CommandHandler("del", handle_delete))
     # 监听修改消息的更新
@@ -199,3 +238,4 @@ if __name__ == '__main__':
     
     print(f"机器人已启动... 管理员ID: {ADMIN_ID}")
     application.run_polling()
+
